@@ -15,6 +15,8 @@ const DeliveryMapSystem = () => {
   const REPARTIDOR_EMAIL = 'camlosnochemala@gmail.com';
   const firestore = getFirestore();
 
+  
+
   // ✅ FUNCIÓN PARA OBTENER TOKEN FCM DEL USUARIO
   const getUserFCMToken = async (userEmail) => {
     try {
@@ -439,56 +441,46 @@ const DeliveryMapSystem = () => {
     }
   };
 
-useEffect(() => {
-  const pedidosRef = ref(db, 'pedidos_activos');
-  
-  const unsubscribe = onValue(pedidosRef, (snapshot) => {
-    const data = snapshot.val();
-    if (data) {
-      const pedidosArray = Object.entries(data).map(([id, pedido]) => ({
-        id,
-        orderId: pedido.orderId || null,
-        nombreCliente: pedido.nombreCliente || null,
-        telefono: pedido.telefono || null,
-        direccion: pedido.direccion || null,
-        cantidad: pedido.cantidad || 0,
-        metodoPago: pedido.metodoPago || null,
-        montoPagado: pedido.montoPagado || null,
-        cambio: pedido.cambio || null,
-        estado: pedido.estado || 'pendiente',
-        ubicacion: pedido.ubicacion || null,
-        edificio: pedido.edificio || null,
-        productos: pedido.productos || [],
-        vendedorData: pedido.vendedorData || null,
-        comentarioe: pedido.comentarioe || null,
-        comentariop: pedido.comentariop || null,
-        email: pedido.email || null,
-        repartidorEmail: pedido.repartidorEmail || null,
-        repartidorNombre: pedido.repartidorNombre || null,
-        repartidorImagen: pedido.repartidorImagen || null,
-      }));
-      setPedidos(pedidosArray);
-    } else {
-      setPedidos([]);
-    }
-    setLoading(false);
-  }, (error) => {
-    console.error('Error al cargar pedidos:', error);
-    setLoading(false);
-  });
+  useEffect(() => {
+    const pedidosRef = ref(db, 'pedidos_activos');
+    
+    const unsubscribe = onValue(pedidosRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        const pedidosArray = Object.entries(data).map(([id, pedido]) => ({
+          id,
+          orderId: pedido.orderId || null,
+          nombreCliente: pedido.nombreCliente || null,
+          telefono: pedido.telefono || null,
+          direccion: pedido.direccion || null,
+          cantidad: pedido.cantidad || 0,
+          metodoPago: pedido.metodoPago || null,
+          montoPagado: pedido.montoPagado || null,
+          cambio: pedido.cambio || null,
+          estado: pedido.estado || 'pendiente',
+          ubicacion: pedido.ubicacion || null,
+          edificio: pedido.edificio || null,
+          productos: pedido.productos || [],
+          vendedorData: pedido.vendedorData || null,
+          comentarioe: pedido.comentarioe || null,
+          comentariop: pedido.comentariop || null,
+          email: pedido.email || null,
+          repartidorEmail: pedido.repartidorEmail || null,
+          repartidorNombre: pedido.repartidorNombre || null,
+          repartidorImagen: pedido.repartidorImagen || null,
+        }));
+        setPedidos(pedidosArray);
+      } else {
+        setPedidos([]);
+      }
+      setLoading(false);
+    }, (error) => {
+      console.error('Error al cargar pedidos:', error);
+      setLoading(false);
+    });
 
-  // ✅ AGREGAR: Auto-refresh cada 30 segundos
-  const refreshInterval = setInterval(() => {
-    console.log('🔄 Actualizando pedidos automáticamente...');
-    // Firebase Realtime Database ya está escuchando cambios en tiempo real
-    // Este log es solo para confirmar que el intervalo está funcionando
-  }, 30000); // 30 segundos
-
-  return () => {
-    unsubscribe();
-    clearInterval(refreshInterval); // Limpiar el intervalo al desmontar
-  };
-}, []);
+    return () => unsubscribe();
+  }, []);
 
   const zonasEntrega = [
     { nombre: 'Edificio A', centro: { lat: 19.72914, lng: -98.46742 }, radio: 29.25, color: '#1976D2', icon: '🏢' },
@@ -1200,75 +1192,62 @@ useEffect(() => {
                   </div>
                 </div>
 
-{/* Productos - FILTRAR PRODUCTOS CON PRECIO 0 */}
-{selectedPedido.productos && Array.isArray(selectedPedido.productos) && selectedPedido.productos.length > 0 && (
-  (() => {
-    // ✅ Filtrar productos con precio mayor a 0
-    const productosFiltrados = selectedPedido.productos.filter(prod => {
-      const precio = parseFloat(prod.precio) || 0;
-      return precio > 0;
-    });
-
-    // Solo mostrar la sección si hay productos válidos
-    if (productosFiltrados.length === 0) return null;
-
-    return (
-      <div style={{ padding: '1rem', background: '#faf5ff' }}>
-        <h3 style={{ 
-          fontWeight: '700',
-          color: '#1f2937',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '0.5rem',
-          marginBottom: '0.75rem',
-          fontSize: '1rem'
-        }}>
-          <ShoppingBasket size={18} style={{ color: '#8b5cf6' }} />
-          Productos ({productosFiltrados.length})
-        </h3>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
-          {productosFiltrados.map((prod, idx) => (
-            <div key={idx} style={{
-              backgroundColor: 'white',
-              borderRadius: '10px',
-              padding: '0.875rem',
-              boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)',
-              border: '1px solid #e9d5ff'
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '0.375rem' }}>
-                <div style={{ flex: 1 }}>
-                  <p style={{ fontWeight: '600', color: '#1f2937', fontSize: '0.9375rem', margin: 0, marginBottom: '0.125rem' }}>
-                    {prod.titulo}
-                  </p>
-                  {prod.preparado && (
-                    <p style={{ fontSize: '0.75rem', color: '#6b7280', margin: 0 }}>
-                      Preparación: {prod.preparado}
-                    </p>
-                  )}
-                </div>
-                <span style={{
-                  backgroundColor: '#f3e8ff',
-                  color: '#7c3aed',
-                  padding: '0.25rem 0.625rem',
-                  borderRadius: '9999px',
-                  fontSize: '0.75rem',
-                  fontWeight: '600',
-                  marginLeft: '0.5rem',
-                  flexShrink: 0
-                }}>
-                  x{prod.cantidad}
-                </span>
-              </div>
-              <p style={{ fontWeight: '700', color: '#8b5cf6', textAlign: 'right', margin: 0, fontSize: '1rem' }}>
-                ${prod.precio?.toFixed ? prod.precio.toFixed(2) : prod.precio || '0.00'}
-              </p>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  })()
-)}
+                {/* Productos */}
+                {selectedPedido.productos && Array.isArray(selectedPedido.productos) && selectedPedido.productos.length > 0 && (
+                  <div style={{ padding: '1rem', background: '#faf5ff' }}>
+                    <h3 style={{ 
+                      fontWeight: '700',
+                      color: '#1f2937',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.5rem',
+                      marginBottom: '0.75rem',
+                      fontSize: '1rem'
+                    }}>
+                      <ShoppingBasket size={18} style={{ color: '#8b5cf6' }} />
+                      Productos
+                    </h3>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
+                      {selectedPedido.productos.map((prod, idx) => (
+                        <div key={idx} style={{
+                          backgroundColor: 'white',
+                          borderRadius: '10px',
+                          padding: '0.875rem',
+                          boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)',
+                          border: '1px solid #e9d5ff'
+                        }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '0.375rem' }}>
+                            <div style={{ flex: 1 }}>
+                              <p style={{ fontWeight: '600', color: '#1f2937', fontSize: '0.9375rem', margin: 0, marginBottom: '0.125rem' }}>
+                                {prod.titulo}
+                              </p>
+                              {prod.preparado && (
+                                <p style={{ fontSize: '0.75rem', color: '#6b7280', margin: 0 }}>
+                                  Preparación: {prod.preparado}
+                                </p>
+                              )}
+                            </div>
+                            <span style={{
+                              backgroundColor: '#f3e8ff',
+                              color: '#7c3aed',
+                              padding: '0.25rem 0.625rem',
+                              borderRadius: '9999px',
+                              fontSize: '0.75rem',
+                              fontWeight: '600',
+                              marginLeft: '0.5rem',
+                              flexShrink: 0
+                            }}>
+                              x{prod.cantidad}
+                            </span>
+                          </div>
+                          <p style={{ fontWeight: '700', color: '#8b5cf6', textAlign: 'right', margin: 0, fontSize: '1rem' }}>
+                            ${prod.precio?.toFixed ? prod.precio.toFixed(2) : prod.precio || '0.00'}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {/* Vendedor */}
                 {selectedPedido.vendedorData && typeof selectedPedido.vendedorData === 'object' && (
