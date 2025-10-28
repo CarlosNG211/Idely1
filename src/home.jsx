@@ -1,16 +1,38 @@
 import React, { useState, useEffect } from 'react';
 import { MapPin, Phone, Package, User, DollarSign, Clock, Navigation, MessageCircle, CheckCircle, AlertCircle, Building, X, Store, Printer, ShoppingBasket, Info, MapIcon, ChevronDown, Filter, RefreshCw, Truck } from 'lucide-react';
-import { db } from './conexion';
-import { ref, onValue } from 'firebase/database';
+import { initializeApp } from 'firebase/app';
+import { getDatabase, ref, onValue, update, remove } from 'firebase/database';
+import { getFirestore, doc, setDoc, updateDoc, getDoc, query, collection, where, getDocs, limit, serverTimestamp } from 'firebase/firestore';
+
+// Configuración de Firebase
+const firebaseConfig = {
+  apiKey: "AIzaSyAGYqDE7wRSj7FL0i3MY3-meunLyXkETA0",
+  authDomain: "chilitosramen-89223.firebaseapp.com",
+  databaseURL: "https://chilitosramen-89223-default-rtdb.firebaseio.com",
+  projectId: "chilitosramen-89223",
+  storageBucket: "chilitosramen-89223.appspot.com",
+  messagingSenderId: "980858860861",
+  appId: "1:980858860861:web:50efba800ea74546a08154",
+  measurementId: "G-23ZQE8834Z"
+};
+
+
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+const firestore = getFirestore(app);
 
 const DeliveryMapSystem = () => {
   const [pedidos, setPedidos] = useState([]);
   const [selectedPedido, setSelectedPedido] = useState(null);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('todos');
-  const [showFilters, setShowFilters] = useState(false);
+  const [repartidorData] = useState({
+    nombre: 'Repartidor Web',
+    email: 'repartidor@web.com',
+    imagen: '',
+    frase: 'Tu pedido está en camino'
+  });
 
-  // Conexión a Firebase Realtime Database
   useEffect(() => {
     const pedidosRef = ref(db, 'pedidos_activos');
     
@@ -104,6 +126,210 @@ const DeliveryMapSystem = () => {
     return { nombre: 'Fuera de Universidad', color: '#757575', icon: '🌍' };
   };
 
+  const actualizarEstadoCliente = async (clienteEmail, orderId, nuevoEstado) => {
+    try {
+      const vendidosRef = collection(firestore, clienteEmail, 'vendidos', '0');
+      const q = query(vendidosRef, where('orderId', '==', orderId), limit(1));
+      const querySnapshot = await getDocs(q);
+
+      if (!querySnapshot.empty) {
+        const pedidoDoc = querySnapshot.docs[0];
+        await updateDoc(pedidoDoc.ref, {
+          estado: nuevoEstado,
+          fechaActualizacion: serverTimestamp(),
+          ultimaActualizacionRepartidor: repartidorData.email
+        });
+        console.log('✅ Estado actualizado en colección del cliente');
+      }
+    } catch (error) {
+      console.error('Error actualizando estado del cliente:', error);
+    }
+  };
+
+  const handleEnCamino = async (pedido) => {
+    try {
+      const clienteEmail = pedido.email;
+      const orderId = pedido.orderId;
+      const docId = pedido.id;
+
+      // Actualizar en Firestore - documento del cliente
+      const repartidorRef = doc(firestore, clienteEmail, 'repartidor');
+      await setDoc(repartidorRef, {
+        nombre: repartidorData.nombre,
+        frase: 'Tu pedido está en camino',
+        imagen: repartidorData.imagen,
+        email: repartidorData.email,
+        enCamino: true,
+        afuera: false,
+        problema: false,
+        estado: 'En Camino',
+        fechaActualizacion: serverTimestamp()
+      }, { merge: true });
+
+      // Actualizar en Realtime Database
+      const realtimeRef = ref(db, `pedidos_activos/${docId}`);
+      await update(realtimeRef, {
+        estado: 'En Camino',
+        enCamino: true,
+        afuera: false,
+        problema: false,
+        repartidorEmail: repartidorData.email,
+        repartidorNombre: repartidorData.nombre,
+        repartidorImagen: repartidorData.imagen,
+        repartidorFrase: 'Tu pedido está en camino',
+        fechaActualizacion: Date.now()
+      });
+
+      // Actualizar estado del cliente
+      await actualizarEstadoCliente(clienteEmail, orderId, 'En Camino');
+
+      alert('✅ Cliente notificado: Pedido en camino');
+      setSelectedPedido(null);
+    } catch (error) {
+      console.error('Error en handleEnCamino:', error);
+      alert('❌ Error al actualizar estado');
+    }
+  };
+
+  const handleAfuera = async (pedido) => {
+    try {
+      const clienteEmail = pedido.email;
+      const orderId = pedido.orderId;
+      const docId = pedido.id;
+
+      // Actualizar en Firestore
+      const repartidorRef = doc(firestore, clienteEmail, 'repartidor');
+      await setDoc(repartidorRef, {
+        nombre: repartidorData.nombre,
+        frase: repartidorData.frase || 'Estoy afuera con tu pedido',
+        imagen: repartidorData.imagen,
+        email: repartidorData.email,
+        afuera: true,
+        enCamino: false,
+        problema: false,
+        estado: 'Afuera',
+        fechaActualizacion: serverTimestamp()
+      }, { merge: true });
+
+      // Actualizar en Realtime Database
+      const realtimeRef = ref(db, `pedidos_activos/${docId}`);
+      await update(realtimeRef, {
+        estado: 'Afuera',
+        afuera: true,
+        enCamino: false,
+        problema: false,
+        repartidorEmail: repartidorData.email,
+        repartidorNombre: repartidorData.nombre,
+        repartidorImagen: repartidorData.imagen,
+        repartidorFrase: repartidorData.frase || 'Estoy afuera con tu pedido',
+        fechaActualizacion: Date.now()
+      });
+
+      await actualizarEstadoCliente(clienteEmail, orderId, 'Afuera');
+
+      alert('✅ Cliente notificado: Repartidor afuera');
+      setSelectedPedido(null);
+    } catch (error) {
+      console.error('Error en handleAfuera:', error);
+      alert('❌ Error al actualizar estado');
+    }
+  };
+
+  const handleProblema = async (pedido) => {
+    try {
+      const clienteEmail = pedido.email;
+      const orderId = pedido.orderId;
+      const docId = pedido.id;
+
+      // Actualizar en Firestore
+      const repartidorRef = doc(firestore, clienteEmail, 'repartidor');
+      await setDoc(repartidorRef, {
+        nombre: repartidorData.nombre,
+        frase: 'Hay un problema con tu pedido, lo resolveremos en breve',
+        imagen: repartidorData.imagen,
+        email: repartidorData.email,
+        problema: true,
+        afuera: false,
+        enCamino: false,
+        estado: 'Error',
+        fechaActualizacion: serverTimestamp()
+      }, { merge: true });
+
+      // Actualizar en Realtime Database
+      const realtimeRef = ref(db, `pedidos_activos/${docId}`);
+      await update(realtimeRef, {
+        estado: 'Error',
+        problema: true,
+        afuera: false,
+        enCamino: false,
+        repartidorEmail: repartidorData.email,
+        repartidorNombre: repartidorData.nombre,
+        repartidorImagen: repartidorData.imagen,
+        repartidorFrase: 'Hay un problema con tu pedido, lo resolveremos en breve',
+        fechaActualizacion: Date.now()
+      });
+
+      await actualizarEstadoCliente(clienteEmail, orderId, 'Error');
+
+      alert('⚠️ Cliente notificado: Hay un problema');
+      setSelectedPedido(null);
+    } catch (error) {
+      console.error('Error en handleProblema:', error);
+      alert('❌ Error al actualizar estado');
+    }
+  };
+
+  const handleCompletar = async (pedido) => {
+    try {
+      const clienteEmail = pedido.email;
+      const orderId = pedido.orderId;
+      const docId = pedido.id;
+
+      // Actualizar en Realtime Database - mover a completados
+      const realtimeRef = ref(db, `pedidos_activos/${docId}`);
+      const pedidoSnapshot = await new Promise((resolve, reject) => {
+        const pedidoRef = ref(db, `pedidos_activos/${docId}`);
+        onValue(pedidoRef, (snapshot) => {
+          resolve(snapshot.val());
+        }, { onlyOnce: true });
+      });
+
+      if (pedidoSnapshot) {
+        const pedidoCompleto = {
+          ...pedidoSnapshot,
+          estado: 'Listo',
+          repartidorEmail: repartidorData.email,
+          repartidorNombre: repartidorData.nombre,
+          repartidorImagen: repartidorData.imagen,
+          fechaCompletado: Date.now(),
+          enCamino: false,
+          afuera: false,
+          problema: false
+        };
+
+        // Guardar en pedidos_completados
+        const completadosRef = ref(db, `pedidos_completados/${docId}`);
+        await update(completadosRef, pedidoCompleto);
+
+        // Eliminar de pedidos_activos
+        await remove(realtimeRef);
+
+        // Eliminar de cola_pedidos
+        const colaRef = ref(db, `cola_pedidos/${docId}`);
+        await remove(colaRef);
+      }
+
+      // Actualizar estado del cliente
+      await actualizarEstadoCliente(clienteEmail, orderId, 'Listo');
+
+      alert('🎉 Pedido completado exitosamente');
+      setSelectedPedido(null);
+    } catch (error) {
+      console.error('Error en handleCompletar:', error);
+      alert('❌ Error al completar pedido');
+    }
+  };
+
   const abrirWhatsApp = (telefono, nombre) => {
     if (!telefono) {
       alert('No hay número de teléfono disponible');
@@ -153,14 +379,6 @@ const DeliveryMapSystem = () => {
       'Error': AlertCircle
     };
     return iconos[estado] || Clock;
-  };
-
-  const handleUpdateEstado = (pedidoId, nuevoEstado) => {
-    console.log(`Actualizando pedido ${pedidoId} a estado: ${nuevoEstado}`);
-    setPedidos(pedidos.map(p => 
-      p.id === pedidoId ? { ...p, estado: nuevoEstado } : p
-    ));
-    setSelectedPedido(null);
   };
 
   const styles = {
@@ -278,7 +496,6 @@ const DeliveryMapSystem = () => {
         `}
       </style>
 
-      {/* Header Optimizado para iOS */}
       <div style={styles.header}>
         <div style={{ maxWidth: '100%' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem' }}>
@@ -320,7 +537,6 @@ const DeliveryMapSystem = () => {
       </div>
 
       <div style={{ padding: '0 1rem 1.5rem' }}>
-        {/* Filtros Optimizados para iOS */}
         <div style={{ marginBottom: '1rem' }}>
           <div style={{ 
             display: 'flex', 
@@ -366,7 +582,6 @@ const DeliveryMapSystem = () => {
           </div>
         </div>
 
-        {/* Lista de Pedidos Optimizada */}
         {pedidosFiltrados.length === 0 ? (
           <div style={{ ...styles.card, padding: '3rem 1.5rem', textAlign: 'center' }}>
             <Package size={64} style={{ color: '#d1d5db', margin: '0 auto 0.75rem' }} />
@@ -389,7 +604,6 @@ const DeliveryMapSystem = () => {
                     animationDelay: `${index * 0.05}s`
                   }}
                 >
-                  {/* Header del Pedido */}
                   <div style={{ 
                     padding: '1rem',
                     background: 'linear-gradient(to right, #f9fafb, white)',
@@ -432,7 +646,6 @@ const DeliveryMapSystem = () => {
                       </div>
                     </div>
 
-                    {/* Info del Edificio */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.625rem' }}>
                       <span style={{ fontSize: '1.125rem' }}>{zonaInfo.icon}</span>
                       <span style={{
@@ -446,7 +659,6 @@ const DeliveryMapSystem = () => {
                       </span>
                     </div>
 
-                    {/* Info del Cliente */}
                     {pedido.nombreCliente && (
                       <div style={{ marginBottom: '0.5rem' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#374151' }}>
@@ -456,7 +668,6 @@ const DeliveryMapSystem = () => {
                       </div>
                     )}
 
-                    {/* Dirección */}
                     {pedido.direccion && (
                       <div style={{ display: 'flex', alignItems: 'start', gap: '0.5rem', color: '#6b7280', fontSize: '0.8125rem' }}>
                         <MapPin size={14} style={{ color: '#ef4444', marginTop: '2px', flexShrink: 0 }} />
@@ -465,7 +676,6 @@ const DeliveryMapSystem = () => {
                     )}
                   </div>
 
-                  {/* Botones de Acción */}
                   <div style={{ 
                     padding: '0.75rem',
                     background: '#f9fafb',
@@ -529,7 +739,6 @@ const DeliveryMapSystem = () => {
         )}
       </div>
 
-      {/* Modal de Detalles Optimizado para iOS */}
       {selectedPedido && (
         <>
           <div 
@@ -565,7 +774,6 @@ const DeliveryMapSystem = () => {
               display: 'flex',
               flexDirection: 'column'
             }}>
-              {/* Modal Header */}
               <div style={{
                 background: 'linear-gradient(135deg, #1e293b 0%, #334155 100%)',
                 padding: '1rem',
@@ -581,7 +789,7 @@ const DeliveryMapSystem = () => {
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
                   <Package size={20} />
                   <h2 style={{ fontSize: '1.125rem', fontWeight: '700', margin: 0 }}>
-                    Detalles
+                    Detalles del Pedido
                   </h2>
                 </div>
                 <button
@@ -605,13 +813,11 @@ const DeliveryMapSystem = () => {
                 </button>
               </div>
 
-              {/* Modal Body - Scrollable */}
               <div style={{ 
                 overflowY: 'auto',
                 flex: 1,
                 WebkitOverflowScrolling: 'touch'
               }}>
-                {/* Información Básica del Pedido */}
                 <div style={{ padding: '1rem', background: '#f0f9ff' }}>
                   <h3 style={{ 
                     fontWeight: '700',
@@ -626,7 +832,6 @@ const DeliveryMapSystem = () => {
                     Información del Pedido
                   </h3>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
-                    {/* Order ID */}
                     {selectedPedido.orderId && (
                       <div style={{ backgroundColor: 'white', borderRadius: '10px', padding: '0.875rem', border: '1px solid #dbeafe' }}>
                         <p style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '0.25rem' }}>ID del Pedido</p>
@@ -636,7 +841,6 @@ const DeliveryMapSystem = () => {
                       </div>
                     )}
 
-                    {/* Cliente */}
                     {selectedPedido.nombreCliente && (
                       <div style={{ backgroundColor: 'white', borderRadius: '10px', padding: '0.875rem', border: '1px solid #dbeafe' }}>
                         <p style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '0.25rem' }}>Cliente</p>
@@ -647,7 +851,6 @@ const DeliveryMapSystem = () => {
                       </div>
                     )}
 
-                    {/* Total a Cobrar */}
                     <div style={{ backgroundColor: 'white', borderRadius: '10px', padding: '0.875rem', border: '2px solid #dbeafe' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <span style={{ color: '#64748b', fontWeight: '500', fontSize: '0.875rem' }}>Total a Cobrar</span>
@@ -657,7 +860,6 @@ const DeliveryMapSystem = () => {
                       </div>
                     </div>
 
-                    {/* Método de Pago */}
                     {selectedPedido.metodoPago && (
                       <div style={{ backgroundColor: 'white', borderRadius: '10px', padding: '0.875rem', border: '1px solid #dbeafe' }}>
                         <p style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '0.25rem' }}>Método de Pago</p>
@@ -668,7 +870,6 @@ const DeliveryMapSystem = () => {
                       </div>
                     )}
 
-                    {/* Efectivo - Cambio */}
                     {selectedPedido.montoPagado && (
                       <div style={{ 
                         backgroundColor: '#dbeafe', 
@@ -695,7 +896,6 @@ const DeliveryMapSystem = () => {
                       </div>
                     )}
 
-                    {/* Dirección */}
                     {selectedPedido.direccion && (
                       <div style={{ backgroundColor: 'white', borderRadius: '10px', padding: '0.875rem', border: '1px solid #dbeafe' }}>
                         <p style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '0.25rem' }}>Dirección del cliente</p>
@@ -706,7 +906,6 @@ const DeliveryMapSystem = () => {
                       </div>
                     )}
 
-                    {/* Edificio */}
                     {selectedPedido.edificio && (
                       <div style={{ backgroundColor: 'white', borderRadius: '10px', padding: '0.875rem', border: '1px solid #dbeafe' }}>
                         <p style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '0.25rem' }}>Edificio de Entrega</p>
@@ -717,7 +916,6 @@ const DeliveryMapSystem = () => {
                       </div>
                     )}
 
-                    {/* Teléfono */}
                     {selectedPedido.telefono && (
                       <div style={{ backgroundColor: 'white', borderRadius: '10px', padding: '0.875rem', border: '1px solid #dbeafe' }}>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -748,7 +946,6 @@ const DeliveryMapSystem = () => {
                       </div>
                     )}
 
-                    {/* Comentarios */}
                     {(selectedPedido.comentarioe || selectedPedido.comentariop) && (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                         {selectedPedido.comentarioe && (
@@ -759,7 +956,7 @@ const DeliveryMapSystem = () => {
                             padding: '0.75rem'
                           }}>
                             <p style={{ fontSize: '0.8125rem', fontWeight: '600', color: '#92400e', margin: 0, marginBottom: '0.25rem' }}>
-                              📝 Comentario de Entrega:
+                              📍 Comentario de Entrega:
                             </p>
                             <p style={{ fontSize: '0.8125rem', color: '#78350f', margin: 0, lineHeight: 1.4 }}>
                               {selectedPedido.comentarioe}
@@ -786,7 +983,6 @@ const DeliveryMapSystem = () => {
                   </div>
                 </div>
 
-                {/* Productos */}
                 {selectedPedido.productos && Array.isArray(selectedPedido.productos) && selectedPedido.productos.length > 0 && (
                   <div style={{ padding: '1rem', background: '#faf5ff' }}>
                     <h3 style={{ 
@@ -843,7 +1039,6 @@ const DeliveryMapSystem = () => {
                   </div>
                 )}
 
-                {/* Vendedor */}
                 {selectedPedido.vendedorData && typeof selectedPedido.vendedorData === 'object' && (
                   <div style={{ padding: '1rem', background: '#f1f5f9' }}>
                     <h3 style={{ 
@@ -895,7 +1090,6 @@ const DeliveryMapSystem = () => {
                   </div>
                 )}
 
-                {/* Mapa */}
                 {selectedPedido.ubicacion && selectedPedido.ubicacion.lat && selectedPedido.ubicacion.lng && (
                   <div style={{ padding: '1rem', background: 'white' }}>
                     <h3 style={{ 
@@ -944,7 +1138,6 @@ const DeliveryMapSystem = () => {
                 )}
               </div>
 
-              {/* Botones de Acción en el Footer */}
               <div style={{ 
                 padding: '1rem',
                 paddingBottom: 'max(1rem, env(safe-area-inset-bottom))',
@@ -955,7 +1148,7 @@ const DeliveryMapSystem = () => {
                 gap: '0.625rem'
               }}>
                 <button
-                  onClick={() => handleUpdateEstado(selectedPedido.id, 'En Camino')}
+                  onClick={() => handleEnCamino(selectedPedido)}
                   style={{
                     ...styles.button,
                     flexDirection: 'column',
@@ -971,7 +1164,7 @@ const DeliveryMapSystem = () => {
                 </button>
 
                 <button
-                  onClick={() => handleUpdateEstado(selectedPedido.id, 'Afuera')}
+                  onClick={() => handleAfuera(selectedPedido)}
                   style={{
                     ...styles.button,
                     flexDirection: 'column',
@@ -987,7 +1180,7 @@ const DeliveryMapSystem = () => {
                 </button>
 
                 <button
-                  onClick={() => handleUpdateEstado(selectedPedido.id, 'Error')}
+                  onClick={() => handleProblema(selectedPedido)}
                   style={{
                     ...styles.button,
                     flexDirection: 'column',
@@ -1003,7 +1196,7 @@ const DeliveryMapSystem = () => {
                 </button>
 
                 <button
-                  onClick={() => handleUpdateEstado(selectedPedido.id, 'Listo')}
+                  onClick={() => handleCompletar(selectedPedido)}
                   style={{
                     ...styles.button,
                     flexDirection: 'column',
@@ -1027,3 +1220,4 @@ const DeliveryMapSystem = () => {
 };
 
 export default DeliveryMapSystem;
+                        
