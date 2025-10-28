@@ -1,37 +1,443 @@
 import React, { useState, useEffect } from 'react';
 import { MapPin, Phone, Package, User, DollarSign, Clock, Navigation, MessageCircle, CheckCircle, AlertCircle, Building, X, Store, Printer, ShoppingBasket, Info, MapIcon, ChevronDown, Filter, RefreshCw, Truck } from 'lucide-react';
-import { initializeApp } from 'firebase/app';
-import { getDatabase, ref, onValue, update, remove } from 'firebase/database';
-import { getFirestore, doc, setDoc, updateDoc, getDoc, query, collection, where, getDocs, limit, serverTimestamp } from 'firebase/firestore';
-
-// Configuración de Firebase
-const firebaseConfig = {
-  apiKey: "AIzaSyAGYqDE7wRSj7FL0i3MY3-meunLyXkETA0",
-  authDomain: "chilitosramen-89223.firebaseapp.com",
-  databaseURL: "https://chilitosramen-89223-default-rtdb.firebaseio.com",
-  projectId: "chilitosramen-89223",
-  storageBucket: "chilitosramen-89223.appspot.com",
-  messagingSenderId: "980858860861",
-  appId: "1:980858860861:web:50efba800ea74546a08154",
-  measurementId: "G-23ZQE8834Z"
-};
-
-
-const app = initializeApp(firebaseConfig);
-const db = getDatabase(app);
-const firestore = getFirestore(app);
+import { db } from './conexion';
+import { ref, onValue, update, remove, serverTimestamp as realtimeServerTimestamp } from 'firebase/database';
+import { getFirestore, doc, updateDoc, collection, query, where, getDocs, serverTimestamp, getDoc } from 'firebase/firestore';
 
 const DeliveryMapSystem = () => {
   const [pedidos, setPedidos] = useState([]);
   const [selectedPedido, setSelectedPedido] = useState(null);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('todos');
-  const [repartidorData] = useState({
-    nombre: 'Repartidor Web',
-    email: 'repartidor@web.com',
-    imagen: '',
-    frase: 'Tu pedido está en camino'
-  });
+  const [showFilters, setShowFilters] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
+
+  const REPARTIDOR_EMAIL = 'camlosnochemala@gmail.com';
+  const firestore = getFirestore();
+
+  // ✅ FUNCIÓN PARA OBTENER TOKEN FCM DEL USUARIO
+  const getUserFCMToken = async (userEmail) => {
+    try {
+      console.log(`🔍 Buscando token FCM para: ${userEmail}`);
+      
+      const tokenDocRef = doc(firestore, userEmail, 'token');
+      const tokenDoc = await getDoc(tokenDocRef);
+      
+      if (tokenDoc.exists()) {
+        const tokenData = tokenDoc.data();
+        console.log(`✅ Token encontrado para ${userEmail}`);
+        return tokenData.token;
+      } else {
+        console.log(`❌ No existe documento token para ${userEmail}`);
+      }
+      return null;
+    } catch (error) {
+      console.error(`❌ Error obteniendo token FCM para ${userEmail}:`, error);
+      return null;
+    }
+  };
+
+  // ✅ FUNCIÓN PARA OBTENER ACCESS TOKEN
+  const getAccessToken = async () => {
+    try {
+      const response = await fetch('https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: new URLSearchParams({
+          grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+          assertion: await createJWT(),
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        return data.access_token;
+      } else {
+        console.error('❌ Error obteniendo access token:', await response.text());
+        return null;
+      }
+    } catch (error) {
+      console.error('❌ Error en getAccessToken:', error);
+      return null;
+    }
+  };
+
+  // ✅ CREAR JWT MANUALMENTE
+  const createJWT = async () => {
+    const serviceAccount = {
+      private_key: "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQClJIa3kG1q1pTj\ntbn6V1KVWy7N1qfKNj8WzczDMMg9RZPUKbm5pUkZW7v5suIB+EExJQTDnSypTMpF\nGJeFczE8OItr1XXZIkVK5vM3O0WfkVklKwIaKqGPJtBfhGNPY8TNcCKJXtlzDKvZ\na7IYXfKgfksxbrejXzeQMaY+feXpwTSnFIhVsow0ptyEfxLa+EzgqRjN/qPhK8oe\nlRf4Ga1lP9KQl0OEcnOMOgR5wZ1irOk6t6+1/9eL+7g2ax9vZS3CDRBgJjeLrX7W\nC4F3OEyh/HKJ/PH0d8SiAr1zp+iY9K613srKD/MDuRp9QYewpSdKJdSam7LeSka1\nOqY5DJlfAgMBAAECggEAA2WYzPDEHFt6ou0DG0/zp6GWqccNjq/3cLmLpR+ewRaO\n3XOhgUR/nmEzAk9ty7uHYv9ydX856nnGsjIyxrtTtNdblCQ0zh8zJon7+zhVazG9\nX1lAgWOp3B/OgDVtQSP8vyWfYcOzE1kWL6YXUD+R5DNU1p8JA67XwnUDv8a/2Ixo\n/jBq4N1CE9qfkWNBTEbHSJHDKXO5YKtRud5Q4TC05dLoGYxNA8JivNOSu6V86Gne\nnUYDC/Iz4V27QniFrYLENV8nAe8bYcqeJDTtNODPQED6rdqc7h1FWxh37qpoVBWA\nKvnGDZfKCo1091nCKDxbOhvbi/GKUt+ybtYLlLmpiQKBgQDTmfUiDZDnNB6AGQWV\nF/CAf4zuQwh9XJkEoRnhQCbYUQeg9T+mdq9M0r6bwd94wWdPKawrmZ0Y4rxYpZjX\n0mu0MVW7TUTlQMFtM0LT2l7CaWHky4SJcYFAnMHfeqapqradlJAtH6Fgq/mnqelD\nBM60A9UE8g/C0OZOhmPLoxl15QKBgQDHyxEJDr7Qn2K3TOyv7BbrqBI+InRVYGwn\npOILhfAHxeqnrVWNpqrwZhULPBGtOdyNZa/JJ1EP98BxkXWtfr2XPInBcDyv0TPd\njdYXiPO0QBDU4ZxHIZODb3q6dAQx6i2rUsQB5tn20+C1ufxwYvGLvP1hy7wYc01G\nw/DdJv/d8wKBgQC1nBXAPFR5m0nyN4eLBxjrsI2MkQvgTHEof/xuT1kHn8QkaVlP\nzd122gmuNR9PzO6WCvYyFY23piJxEu+zjG3UIeOq9g6DlKhuyOg6W9mokjnq3KHM\nNRbyFZhv7hzM0jAZ30A++j7Pccq8FCCX3LBr4D4cGIVed1yzWLSeOkXH4QKBgQC5\nnUjoV1CjVVBK5yaFkhsBOJYqL6xQnVIdyqtO9VI4hoEo4no3LX5l9RDb7SSnALiM\njMoxYVuIMC4T1IW1d6f/13hLxFA9L2i2Ds2188Al19dLT4b29pSraWhlzN8Q2HUx\nU6VR9vzMua9sZavHZcTug9gLgVHwjT5f3i3p6A+STQKBgE3CcexLBs9vsd6H8oAK\nlvprg8tVS/L8YtdYZYJKzn1UbLwfUnRxQ9/NV9dZyUrT+cXYJNl0FLIZ87o0m/50\n8YzmtGFTyei+xlWvSwaMHNykRHzfj8V+FTZnJ+Ur1wloXCrxwT8Up24GKksJP/tu\nC7Meb57h23H0wqmdg2aLrffo\n-----END PRIVATE KEY-----\n",
+      client_email: "firebase-adminsdk-g1mkp@chilitosramen-89223.iam.gserviceaccount.com",
+    };
+
+    const now = Math.floor(Date.now() / 1000);
+    const header = {
+      alg: "RS256",
+      typ: "JWT"
+    };
+
+    const payload = {
+      iss: serviceAccount.client_email,
+      scope: "https://www.googleapis.com/auth/firebase.messaging",
+      aud: "https://oauth2.googleapis.com/token",
+      exp: now + 3600,
+      iat: now
+    };
+
+    const base64Header = btoa(JSON.stringify(header)).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+    const base64Payload = btoa(JSON.stringify(payload)).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+    const unsignedToken = `${base64Header}.${base64Payload}`;
+
+    try {
+      const privateKey = await importPrivateKey(serviceAccount.private_key);
+      const signature = await signData(unsignedToken, privateKey);
+      const base64Signature = arrayBufferToBase64(signature).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+      
+      return `${unsignedToken}.${base64Signature}`;
+    } catch (error) {
+      console.error('❌ Error creando JWT:', error);
+      return null;
+    }
+  };
+
+  // Helper functions para JWT
+  const importPrivateKey = async (pem) => {
+    const pemContents = pem
+      .replace(/-----BEGIN PRIVATE KEY-----/, '')
+      .replace(/-----END PRIVATE KEY-----/, '')
+      .replace(/\s/g, '');
+    
+    const binaryDer = atob(pemContents);
+    const binaryDerArray = new Uint8Array(binaryDer.length);
+    for (let i = 0; i < binaryDer.length; i++) {
+      binaryDerArray[i] = binaryDer.charCodeAt(i);
+    }
+
+    return await crypto.subtle.importKey(
+      'pkcs8',
+      binaryDerArray.buffer,
+      {
+        name: 'RSASSA-PKCS1-v1_5',
+        hash: 'SHA-256',
+      },
+      false,
+      ['sign']
+    );
+  };
+
+  const signData = async (data, key) => {
+    const encoder = new TextEncoder();
+    const dataBuffer = encoder.encode(data);
+    return await crypto.subtle.sign('RSASSA-PKCS1-v1_5', key, dataBuffer);
+  };
+
+  const arrayBufferToBase64 = (buffer) => {
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    for (let i = 0; i < bytes.length; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary);
+  };
+
+  // ✅ FUNCIÓN PARA ENVIAR NOTIFICACIÓN FCM
+  const sendFCMNotification = async (token, title, body, data = {}) => {
+    try {
+      console.log('📤 Intentando enviar notificación...');
+      console.log('Token destinatario:', token);
+      console.log('Título:', title);
+      console.log('Mensaje:', body);
+
+      const accessToken = await getAccessToken();
+      if (!accessToken) {
+        console.error('❌ No se pudo obtener access token');
+        return false;
+      }
+
+      console.log('✅ Access token obtenido correctamente');
+
+      const response = await fetch(
+        'https://fcm.googleapis.com/v1/projects/chilitosramen-89223/messages:send',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({
+            message: {
+              token: token,
+              notification: {
+                title: title,
+                body: body,
+              },
+              data: {
+                ...data,
+                click_action: 'FLUTTER_NOTIFICATION_CLICK',
+                status: 'done',
+                type: 'delivery_update',
+              },
+              android: {
+                priority: 'high',
+                notification: {
+                  sound: 'default',
+                  channel_id: 'high_importance_channel',
+                  notification_priority: 'PRIORITY_MAX',
+                },
+              },
+              apns: {
+                headers: {
+                  'apns-priority': '10',
+                },
+                payload: {
+                  aps: {
+                    sound: 'default',
+                    badge: 1,
+                  },
+                },
+              },
+            },
+          }),
+        }
+      );
+
+      if (response.ok) {
+        const responseData = await response.json();
+        console.log('✅ Notificación enviada exitosamente');
+        console.log('Respuesta FCM:', responseData);
+        return true;
+      } else {
+        const errorData = await response.json();
+        console.error('❌ Error en respuesta FCM:', errorData);
+        return false;
+      }
+    } catch (error) {
+      console.error('❌ Error al enviar notificación:', error);
+      return false;
+    }
+  };
+
+  // ✅ FUNCIÓN PRINCIPAL PARA ACTUALIZAR ESTADO
+  const handleUpdateEstado = async (pedidoId, nuevoEstado) => {
+    if (isProcessing) return;
+    
+    setIsProcessing(true);
+    console.log(`🔄 Actualizando pedido ${pedidoId} a estado: ${nuevoEstado}`);
+
+    try {
+      const pedido = pedidos.find(p => p.id === pedidoId);
+      if (!pedido) {
+        alert('❌ Pedido no encontrado');
+        return;
+      }
+
+      // 1. Actualizar Realtime Database
+      const pedidoRef = ref(db, `pedidos_activos/${pedidoId}`);
+      const realtimeUpdate = {
+        estado: nuevoEstado,
+        repartidorEmail: REPARTIDOR_EMAIL,
+        repartidorNombre: 'Repartidor',
+        fechaActualizacion: Date.now()
+      };
+
+      // Configurar mensajes según el estado
+      let notificationTitle = '';
+      let notificationBody = '';
+
+      if (nuevoEstado === 'En Camino') {
+        realtimeUpdate.enCamino = true;
+        realtimeUpdate.afuera = false;
+        realtimeUpdate.problema = false;
+        realtimeUpdate.repartidorFrase = 'Tu pedido está en camino';
+        notificationTitle = '🚛 ¡Tu pedido está en camino!';
+        notificationBody = 'El repartidor ya salió y está en camino con tu pedido';
+      } else if (nuevoEstado === 'Afuera') {
+        realtimeUpdate.afuera = true;
+        realtimeUpdate.enCamino = false;
+        realtimeUpdate.problema = false;
+        realtimeUpdate.repartidorFrase = 'Estoy afuera con tu pedido';
+        notificationTitle = '📍 ¡El repartidor ha llegado!';
+        notificationBody = 'El repartidor está afuera con tu pedido. ¡Sal a recibirlo!';
+      } else if (nuevoEstado === 'Error') {
+        realtimeUpdate.problema = true;
+        realtimeUpdate.afuera = false;
+        realtimeUpdate.enCamino = false;
+        realtimeUpdate.repartidorFrase = 'Hay un problema con tu pedido';
+        notificationTitle = '⚠️ Problema con tu pedido';
+        notificationBody = 'Estamos resolviendo un inconveniente con tu pedido. Te mantendremos informado.';
+      } else if (nuevoEstado === 'Listo') {
+        realtimeUpdate.enCamino = false;
+        realtimeUpdate.afuera = false;
+        realtimeUpdate.problema = false;
+        realtimeUpdate.repartidorFrase = 'Tu pedido está listo';
+        notificationTitle = '✅ ¡Tu pedido está listo!';
+        notificationBody = 'Tu pedido ha sido completado exitosamente.';
+      }
+
+      await update(pedidoRef, realtimeUpdate);
+      console.log('✅ Realtime Database actualizado');
+
+      // 2. Actualizar Firestore del cliente
+      if (pedido.email && pedido.orderId) {
+        await actualizarEstadoCliente(pedido.email, pedido.orderId, nuevoEstado);
+      }
+
+      // 3. Actualizar Repartidor collection
+      await actualizarRepartidorCollection(pedidoId, nuevoEstado);
+
+      // 4. 🔔 ENVIAR NOTIFICACIÓN FCM AL CLIENTE
+      if (pedido.email) {
+        console.log(`📧 Email del cliente: ${pedido.email}`);
+        const userToken = await getUserFCMToken(pedido.email);
+        
+        if (userToken) {
+          console.log('✅ Token FCM obtenido, enviando notificación...');
+          const notificationSent = await sendFCMNotification(
+            userToken,
+            notificationTitle,
+            notificationBody,
+            {
+              orderId: pedido.orderId || '',
+              estado: nuevoEstado,
+              timestamp: Date.now().toString()
+            }
+          );
+          
+          if (notificationSent) {
+            console.log('✅ Notificación enviada al cliente');
+          } else {
+            console.log('⚠️ Falló el envío de la notificación');
+          }
+        } else {
+          console.log('⚠️ No se encontró token FCM para el usuario');
+        }
+      } else {
+        console.log('⚠️ El pedido no tiene email asociado');
+      }
+
+      // 5. Si es "Listo", mover a completados
+      if (nuevoEstado === 'Listo') {
+        const completadosRef = ref(db, `pedidos_completados/${pedidoId}`);
+        const pedidoCompleto = {
+          ...pedido,
+          ...realtimeUpdate,
+          fechaCompletado: Date.now()
+        };
+        
+        await update(completadosRef, pedidoCompleto);
+        await remove(pedidoRef);
+        
+        const colaPedidosRef = ref(db, `cola_pedidos/${pedidoId}`);
+        await remove(colaPedidosRef);
+        
+        console.log('✅ Pedido movido a completados');
+      }
+
+      // 6. Actualizar UI local
+      setPedidos(pedidos.map(p => 
+        p.id === pedidoId ? { ...p, estado: nuevoEstado, repartidorEmail: REPARTIDOR_EMAIL } : p
+      ));
+      
+      setSelectedPedido(null);
+      alert(`✅ Pedido actualizado a: ${nuevoEstado}`);
+      
+    } catch (error) {
+      console.error('❌ Error actualizando estado:', error);
+      alert('❌ Error al actualizar el pedido');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const actualizarEstadoCliente = async (clienteEmail, orderId, nuevoEstado) => {
+    try {
+      const vendidosRef = collection(firestore, clienteEmail, 'vendidos', '0');
+      const q = query(vendidosRef, where('orderId', '==', orderId));
+      const querySnapshot = await getDocs(q);
+
+      if (!querySnapshot.empty) {
+        const pedidoDoc = querySnapshot.docs[0];
+        await updateDoc(pedidoDoc.ref, {
+          estado: nuevoEstado,
+          fechaActualizacion: serverTimestamp(),
+          ultimaActualizacionRepartidor: REPARTIDOR_EMAIL
+        });
+        console.log(`✅ Estado actualizado en Firestore del cliente: ${nuevoEstado}`);
+      }
+
+      const repartidorRef = doc(firestore, clienteEmail, 'repartidor');
+      const repartidorData = {
+        nombre: 'Repartidor',
+        email: REPARTIDOR_EMAIL,
+        estado: nuevoEstado,
+        fechaActualizacion: serverTimestamp()
+      };
+
+      if (nuevoEstado === 'En Camino') {
+        repartidorData.frase = 'Tu pedido está en camino';
+        repartidorData.enCamino = true;
+        repartidorData.afuera = false;
+        repartidorData.problema = false;
+      } else if (nuevoEstado === 'Afuera') {
+        repartidorData.frase = 'Estoy afuera con tu pedido';
+        repartidorData.afuera = true;
+        repartidorData.enCamino = false;
+        repartidorData.problema = false;
+      } else if (nuevoEstado === 'Error') {
+        repartidorData.frase = 'Hay un problema con tu pedido, lo resolveremos en breve';
+        repartidorData.problema = true;
+        repartidorData.afuera = false;
+        repartidorData.enCamino = false;
+      } else if (nuevoEstado === 'Listo') {
+        repartidorData.frase = 'Tu pedido está listo';
+        repartidorData.enCamino = false;
+        repartidorData.afuera = false;
+        repartidorData.problema = false;
+      }
+
+      await updateDoc(repartidorRef, repartidorData);
+      console.log(`✅ Documento repartidor actualizado en Firestore del cliente`);
+    } catch (error) {
+      console.error('❌ Error actualizando estado en Firestore:', error);
+    }
+  };
+
+  const actualizarRepartidorCollection = async (docId, nuevoEstado) => {
+    try {
+      const repartidorDocRef = doc(firestore, 'Repartidor', docId);
+      
+      const updateData = {
+        estado: nuevoEstado,
+        repartidorEmail: REPARTIDOR_EMAIL,
+        fechaActualizacion: serverTimestamp()
+      };
+
+      if (nuevoEstado === 'En Camino') {
+        updateData.enCamino = true;
+        updateData.afuera = false;
+        updateData.problema = false;
+      } else if (nuevoEstado === 'Afuera') {
+        updateData.afuera = true;
+        updateData.enCamino = false;
+        updateData.problema = false;
+      } else if (nuevoEstado === 'Error') {
+        updateData.problema = true;
+        updateData.afuera = false;
+        updateData.enCamino = false;
+      } else if (nuevoEstado === 'Listo') {
+        updateData.enCamino = false;
+        updateData.afuera = false;
+        updateData.problema = false;
+        updateData.fechaCompletado = serverTimestamp();
+      }
+
+      await updateDoc(repartidorDocRef, updateData);
+      console.log(`✅ Estado actualizado en Repartidor collection: ${nuevoEstado}`);
+    } catch (error) {
+      console.error('❌ Error actualizando Repartidor collection:', error);
+    }
+  };
 
   useEffect(() => {
     const pedidosRef = ref(db, 'pedidos_activos');
@@ -56,7 +462,10 @@ const DeliveryMapSystem = () => {
           vendedorData: pedido.vendedorData || null,
           comentarioe: pedido.comentarioe || null,
           comentariop: pedido.comentariop || null,
-          email: pedido.email || null
+          email: pedido.email || null,
+          repartidorEmail: pedido.repartidorEmail || null,
+          repartidorNombre: pedido.repartidorNombre || null,
+          repartidorImagen: pedido.repartidorImagen || null,
         }));
         setPedidos(pedidosArray);
       } else {
@@ -80,7 +489,7 @@ const DeliveryMapSystem = () => {
     { nombre: 'Edificio F', centro: { lat: 19.73021, lng: -98.46731 }, radio: 26.40, color: '#0097A7', icon: '🏢' },
     { nombre: 'Edificio G', centro: { lat: 19.73048, lng: -98.46699 }, radio: 16.36, color: '#C2185B', icon: '🏢' },
     { nombre: 'Cafetería', centro: { lat: 19.73003, lng: -98.46689 }, radio: 11.76, color: '#8D6E63', icon: '☕' },
-    { nombre: 'Gallineros', centro: { lat: 19.72997, lng: -98.46662 }, radio: 16.88, color: '#FFB74D', icon: '🏠' },
+    { nombre: 'Gallineros', centro: { lat: 19.72997, lng: -98.46662 }, radio: 16.88, color: '#FFB74D', icon: '🐔' },
     { nombre: 'En medio', centro: { lat: 19.72952, lng: -98.46701 }, radio: 16.10, color: '#4DB6AC', icon: '🎯' },
     { nombre: 'Árbol de Redes', centro: { lat: 19.72930, lng: -98.46672 }, radio: 21.17, color: '#66BB6A', icon: '🌳' },
     { nombre: 'Fuera Edificio E', centro: { lat: 19.72967, lng: -98.46615 }, radio: 18.41, color: '#9575CD', icon: '📍' },
@@ -124,210 +533,6 @@ const DeliveryMapSystem = () => {
       }
     }
     return { nombre: 'Fuera de Universidad', color: '#757575', icon: '🌍' };
-  };
-
-  const actualizarEstadoCliente = async (clienteEmail, orderId, nuevoEstado) => {
-    try {
-      const vendidosRef = collection(firestore, clienteEmail, 'vendidos', '0');
-      const q = query(vendidosRef, where('orderId', '==', orderId), limit(1));
-      const querySnapshot = await getDocs(q);
-
-      if (!querySnapshot.empty) {
-        const pedidoDoc = querySnapshot.docs[0];
-        await updateDoc(pedidoDoc.ref, {
-          estado: nuevoEstado,
-          fechaActualizacion: serverTimestamp(),
-          ultimaActualizacionRepartidor: repartidorData.email
-        });
-        console.log('✅ Estado actualizado en colección del cliente');
-      }
-    } catch (error) {
-      console.error('Error actualizando estado del cliente:', error);
-    }
-  };
-
-  const handleEnCamino = async (pedido) => {
-    try {
-      const clienteEmail = pedido.email;
-      const orderId = pedido.orderId;
-      const docId = pedido.id;
-
-      // Actualizar en Firestore - documento del cliente
-      const repartidorRef = doc(firestore, clienteEmail, 'repartidor');
-      await setDoc(repartidorRef, {
-        nombre: repartidorData.nombre,
-        frase: 'Tu pedido está en camino',
-        imagen: repartidorData.imagen,
-        email: repartidorData.email,
-        enCamino: true,
-        afuera: false,
-        problema: false,
-        estado: 'En Camino',
-        fechaActualizacion: serverTimestamp()
-      }, { merge: true });
-
-      // Actualizar en Realtime Database
-      const realtimeRef = ref(db, `pedidos_activos/${docId}`);
-      await update(realtimeRef, {
-        estado: 'En Camino',
-        enCamino: true,
-        afuera: false,
-        problema: false,
-        repartidorEmail: repartidorData.email,
-        repartidorNombre: repartidorData.nombre,
-        repartidorImagen: repartidorData.imagen,
-        repartidorFrase: 'Tu pedido está en camino',
-        fechaActualizacion: Date.now()
-      });
-
-      // Actualizar estado del cliente
-      await actualizarEstadoCliente(clienteEmail, orderId, 'En Camino');
-
-      alert('✅ Cliente notificado: Pedido en camino');
-      setSelectedPedido(null);
-    } catch (error) {
-      console.error('Error en handleEnCamino:', error);
-      alert('❌ Error al actualizar estado');
-    }
-  };
-
-  const handleAfuera = async (pedido) => {
-    try {
-      const clienteEmail = pedido.email;
-      const orderId = pedido.orderId;
-      const docId = pedido.id;
-
-      // Actualizar en Firestore
-      const repartidorRef = doc(firestore, clienteEmail, 'repartidor');
-      await setDoc(repartidorRef, {
-        nombre: repartidorData.nombre,
-        frase: repartidorData.frase || 'Estoy afuera con tu pedido',
-        imagen: repartidorData.imagen,
-        email: repartidorData.email,
-        afuera: true,
-        enCamino: false,
-        problema: false,
-        estado: 'Afuera',
-        fechaActualizacion: serverTimestamp()
-      }, { merge: true });
-
-      // Actualizar en Realtime Database
-      const realtimeRef = ref(db, `pedidos_activos/${docId}`);
-      await update(realtimeRef, {
-        estado: 'Afuera',
-        afuera: true,
-        enCamino: false,
-        problema: false,
-        repartidorEmail: repartidorData.email,
-        repartidorNombre: repartidorData.nombre,
-        repartidorImagen: repartidorData.imagen,
-        repartidorFrase: repartidorData.frase || 'Estoy afuera con tu pedido',
-        fechaActualizacion: Date.now()
-      });
-
-      await actualizarEstadoCliente(clienteEmail, orderId, 'Afuera');
-
-      alert('✅ Cliente notificado: Repartidor afuera');
-      setSelectedPedido(null);
-    } catch (error) {
-      console.error('Error en handleAfuera:', error);
-      alert('❌ Error al actualizar estado');
-    }
-  };
-
-  const handleProblema = async (pedido) => {
-    try {
-      const clienteEmail = pedido.email;
-      const orderId = pedido.orderId;
-      const docId = pedido.id;
-
-      // Actualizar en Firestore
-      const repartidorRef = doc(firestore, clienteEmail, 'repartidor');
-      await setDoc(repartidorRef, {
-        nombre: repartidorData.nombre,
-        frase: 'Hay un problema con tu pedido, lo resolveremos en breve',
-        imagen: repartidorData.imagen,
-        email: repartidorData.email,
-        problema: true,
-        afuera: false,
-        enCamino: false,
-        estado: 'Error',
-        fechaActualizacion: serverTimestamp()
-      }, { merge: true });
-
-      // Actualizar en Realtime Database
-      const realtimeRef = ref(db, `pedidos_activos/${docId}`);
-      await update(realtimeRef, {
-        estado: 'Error',
-        problema: true,
-        afuera: false,
-        enCamino: false,
-        repartidorEmail: repartidorData.email,
-        repartidorNombre: repartidorData.nombre,
-        repartidorImagen: repartidorData.imagen,
-        repartidorFrase: 'Hay un problema con tu pedido, lo resolveremos en breve',
-        fechaActualizacion: Date.now()
-      });
-
-      await actualizarEstadoCliente(clienteEmail, orderId, 'Error');
-
-      alert('⚠️ Cliente notificado: Hay un problema');
-      setSelectedPedido(null);
-    } catch (error) {
-      console.error('Error en handleProblema:', error);
-      alert('❌ Error al actualizar estado');
-    }
-  };
-
-  const handleCompletar = async (pedido) => {
-    try {
-      const clienteEmail = pedido.email;
-      const orderId = pedido.orderId;
-      const docId = pedido.id;
-
-      // Actualizar en Realtime Database - mover a completados
-      const realtimeRef = ref(db, `pedidos_activos/${docId}`);
-      const pedidoSnapshot = await new Promise((resolve, reject) => {
-        const pedidoRef = ref(db, `pedidos_activos/${docId}`);
-        onValue(pedidoRef, (snapshot) => {
-          resolve(snapshot.val());
-        }, { onlyOnce: true });
-      });
-
-      if (pedidoSnapshot) {
-        const pedidoCompleto = {
-          ...pedidoSnapshot,
-          estado: 'Listo',
-          repartidorEmail: repartidorData.email,
-          repartidorNombre: repartidorData.nombre,
-          repartidorImagen: repartidorData.imagen,
-          fechaCompletado: Date.now(),
-          enCamino: false,
-          afuera: false,
-          problema: false
-        };
-
-        // Guardar en pedidos_completados
-        const completadosRef = ref(db, `pedidos_completados/${docId}`);
-        await update(completadosRef, pedidoCompleto);
-
-        // Eliminar de pedidos_activos
-        await remove(realtimeRef);
-
-        // Eliminar de cola_pedidos
-        const colaRef = ref(db, `cola_pedidos/${docId}`);
-        await remove(colaRef);
-      }
-
-      // Actualizar estado del cliente
-      await actualizarEstadoCliente(clienteEmail, orderId, 'Listo');
-
-      alert('🎉 Pedido completado exitosamente');
-      setSelectedPedido(null);
-    } catch (error) {
-      console.error('Error en handleCompletar:', error);
-      alert('❌ Error al completar pedido');
-    }
   };
 
   const abrirWhatsApp = (telefono, nombre) => {
@@ -422,7 +627,7 @@ const DeliveryMapSystem = () => {
       borderRadius: '12px',
       fontWeight: '600',
       border: 'none',
-      cursor: 'pointer',
+      cursor: isProcessing ? 'not-allowed' : 'pointer',
       transition: 'all 0.2s ease',
       display: 'flex',
       alignItems: 'center',
@@ -432,7 +637,8 @@ const DeliveryMapSystem = () => {
       WebkitTouchCallout: 'none',
       userSelect: 'none',
       fontSize: '0.9375rem',
-      minHeight: '44px'
+      minHeight: '44px',
+      opacity: isProcessing ? 0.6 : 1
     }
   };
 
@@ -490,7 +696,7 @@ const DeliveryMapSystem = () => {
             }
           }
           
-          button:active {
+          button:active:not(:disabled) {
             opacity: 0.7;
           }
         `}
@@ -794,12 +1000,13 @@ const DeliveryMapSystem = () => {
                 </div>
                 <button
                   onClick={() => setSelectedPedido(null)}
+                  disabled={isProcessing}
                   style={{
                     padding: '0.5rem',
                     background: 'rgba(255, 255, 255, 0.15)',
                     border: 'none',
                     borderRadius: '8px',
-                    cursor: 'pointer',
+                    cursor: isProcessing ? 'not-allowed' : 'pointer',
                     color: 'white',
                     display: 'flex',
                     alignItems: 'center',
@@ -945,7 +1152,7 @@ const DeliveryMapSystem = () => {
                         </div>
                       </div>
                     )}
-
+                    
                     {(selectedPedido.comentarioe || selectedPedido.comentariop) && (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                         {selectedPedido.comentarioe && (
@@ -956,7 +1163,7 @@ const DeliveryMapSystem = () => {
                             padding: '0.75rem'
                           }}>
                             <p style={{ fontSize: '0.8125rem', fontWeight: '600', color: '#92400e', margin: 0, marginBottom: '0.25rem' }}>
-                              📍 Comentario de Entrega:
+                              📝 Comentario de Entrega:
                             </p>
                             <p style={{ fontSize: '0.8125rem', color: '#78350f', margin: 0, lineHeight: 1.4 }}>
                               {selectedPedido.comentarioe}
@@ -983,6 +1190,7 @@ const DeliveryMapSystem = () => {
                   </div>
                 </div>
 
+                {/* Productos */}
                 {selectedPedido.productos && Array.isArray(selectedPedido.productos) && selectedPedido.productos.length > 0 && (
                   <div style={{ padding: '1rem', background: '#faf5ff' }}>
                     <h3 style={{ 
@@ -1039,6 +1247,7 @@ const DeliveryMapSystem = () => {
                   </div>
                 )}
 
+                {/* Vendedor */}
                 {selectedPedido.vendedorData && typeof selectedPedido.vendedorData === 'object' && (
                   <div style={{ padding: '1rem', background: '#f1f5f9' }}>
                     <h3 style={{ 
@@ -1090,6 +1299,7 @@ const DeliveryMapSystem = () => {
                   </div>
                 )}
 
+                {/* Mapa */}
                 {selectedPedido.ubicacion && selectedPedido.ubicacion.lat && selectedPedido.ubicacion.lng && (
                   <div style={{ padding: '1rem', background: 'white' }}>
                     <h3 style={{ 
@@ -1138,6 +1348,7 @@ const DeliveryMapSystem = () => {
                 )}
               </div>
 
+              {/* Botones de Acción en el Footer */}
               <div style={{ 
                 padding: '1rem',
                 paddingBottom: 'max(1rem, env(safe-area-inset-bottom))',
@@ -1148,7 +1359,7 @@ const DeliveryMapSystem = () => {
                 gap: '0.625rem'
               }}>
                 <button
-                  onClick={() => handleEnCamino(selectedPedido)}
+                  onClick={() => handleUpdateEstado(selectedPedido.id, 'En Camino')}
                   style={{
                     ...styles.button,
                     flexDirection: 'column',
@@ -1164,7 +1375,7 @@ const DeliveryMapSystem = () => {
                 </button>
 
                 <button
-                  onClick={() => handleAfuera(selectedPedido)}
+                  onClick={() => handleUpdateEstado(selectedPedido.id, 'Afuera')}
                   style={{
                     ...styles.button,
                     flexDirection: 'column',
@@ -1180,7 +1391,7 @@ const DeliveryMapSystem = () => {
                 </button>
 
                 <button
-                  onClick={() => handleProblema(selectedPedido)}
+                  onClick={() => handleUpdateEstado(selectedPedido.id, 'Error')}
                   style={{
                     ...styles.button,
                     flexDirection: 'column',
@@ -1196,7 +1407,7 @@ const DeliveryMapSystem = () => {
                 </button>
 
                 <button
-                  onClick={() => handleCompletar(selectedPedido)}
+                  onClick={() => handleUpdateEstado(selectedPedido.id, 'Listo')}
                   style={{
                     ...styles.button,
                     flexDirection: 'column',
@@ -1220,4 +1431,3 @@ const DeliveryMapSystem = () => {
 };
 
 export default DeliveryMapSystem;
-                        
